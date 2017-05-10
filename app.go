@@ -40,7 +40,9 @@ func getExecutorStatus(url string) (ExecutorStatus, error) {
 
 func main() {
 	var jenkinsHost string
+	var pollTimer int
 	flag.StringVar(&jenkinsHost, "urls", "", "remote Jenkins URLs - comma separated")
+	flag.IntVar(&pollTimer, "pollDelay", 60, "specifies the delay in seconds between polling")
 	flag.Parse()
 
 	if len(jenkinsHost) == 0 {
@@ -83,11 +85,10 @@ func main() {
 					agentStatus.With(labels).Set(online)
 				}
 			}
-			time.Sleep(time.Duration(10 * time.Second))
+			time.Sleep(time.Duration(time.Duration(pollTimer) * time.Second))
 		}
 	}()
 
 	http.Handle("/metrics", promhttp.Handler())
 	log.Fatal(http.ListenAndServe(":9001", nil))
 }
-
