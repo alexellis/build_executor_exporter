@@ -30,7 +30,9 @@ func getExecutorStatus(url string) (ExecutorStatus, error) {
 	req, err := http.NewRequest("GET", fmt.Sprintf("%s/computer/api/json", url), nil)
 	httpClient := http.Client{}
 	res, err := httpClient.Do(req)
-
+	if err != nil {
+		return executorStatus, err
+	}
 	defer res.Body.Close()
 	resBody, err := ioutil.ReadAll(res.Body)
 	err = json.Unmarshal(resBody, &executorStatus)
@@ -69,7 +71,9 @@ func main() {
 		for {
 			for _, jenkinsHost := range hosts {
 				status, err := getExecutorStatus(jenkinsHost)
-				fmt.Println(status, err)
+				if err != nil {
+					fmt.Println(err)
+				}
 				for _, computer := range status.Computer {
 
 					var online float64
