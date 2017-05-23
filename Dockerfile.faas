@@ -17,7 +17,7 @@ RUN chmod +x /usr/bin/fwatchdog
 
 COPY --from=0 /go/src/github.com/alexellis/build_executor_exporter/build_executor_exporter /root/build_executor_exporter
 RUN ls -la
-ENV fprocess="./build_executor_exporter -urls http://baas.ad.esi.adp.com:8080 -oneShot=true"
+ENV fprocess="./build_executor_exporter -urls http://jenkins-ci:8080 -oneShot=true"
 
 EXPOSE 8080
 
