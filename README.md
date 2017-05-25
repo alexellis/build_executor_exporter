@@ -32,6 +32,27 @@ This wil run once and then output to `stdout` and can be used with [FaaS](https:
 docker run -ti alexellis2/build_executor_exporter:0.2-faas ./build_executor_exporter -urls http://site1,http://site2
 ```
 
+#### Sample alert.rules
+
+This is an example of alerting rules which can be configured with AlertManager:
+
+```
+ALERT AgentOffline 
+  IF online_status == 0 
+  FOR 60s
+  LABELS {
+    service = "build_executor_exporter",
+    severity = "major",
+    value = "{{$value}}"
+  }
+  ANNOTATIONS {
+    summary = "Agent down on {{ $labels.instance }}",
+    description =  "High invocation total on {{ $labels.instance }} {{ $value }}"
+  } 
+```
+
+You may want to combine this with the temporarily_offline_status flag if you have build agents which are kept offline for long periods of maintenance.
+
 ### Todo:
 
 [-] Configure basic auth through CLI arguments
