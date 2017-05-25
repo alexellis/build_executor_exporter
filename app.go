@@ -85,8 +85,8 @@ func newExecutorCollector(URLs []string) *executorCollector {
 	c := executorCollector{
 		URLs: URLs,
 	}
-	c.onlineStatus = prometheus.NewDesc("online_status", "whether a node is online", []string{"name", "url"}, prometheus.Labels{})
-	c.temporarilyOfflineStatus = prometheus.NewDesc("temporarily_offline_status", "whether a node is temporarily offline", []string{"name", "url"}, prometheus.Labels{})
+	c.onlineStatus = prometheus.NewDesc("online_status", "whether a node is online", []string{"node", "url"}, prometheus.Labels{})
+	c.temporarilyOfflineStatus = prometheus.NewDesc("temporarily_offline_status", "whether a node is temporarily offline", []string{"node", "url"}, prometheus.Labels{})
 
 	return &c
 }
