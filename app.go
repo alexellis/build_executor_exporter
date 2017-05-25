@@ -8,8 +8,6 @@ import (
 	"log"
 	"net/http"
 	"net/http/httptest"
-	"time"
-
 	"strings"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -19,19 +17,30 @@ import (
 // ExecutorStatus from Jenkins public API
 type ExecutorStatus struct {
 	Computer []struct {
-		DisplayName string `json:"displayName"`
-		Offline     bool   `json:"offline"`
+		DisplayName        string `json:"displayName"`
+		Offline            bool   `json:"offline"`
+		TemporarilyOffline bool   `json:"temporarilyOffline"`
 	} `json:"computer"`
+}
+
+type remoteCollection struct {
+	node               string
+	url                string
+	online             float64
+	temporarilyOffline float64
+}
+
+type executorCollector struct {
+	onlineStatus             *prometheus.Desc
+	temporarilyOfflineStatus *prometheus.Desc
+	URLs                     []string
 }
 
 func main() {
 	var jenkinsHost string
-	var pollTimer int
-
 	var oneShot bool
 
 	flag.StringVar(&jenkinsHost, "urls", "", "remote Jenkins URLs - comma separated")
-	flag.IntVar(&pollTimer, "pollDelay", 60, "specifies the delay in seconds between polling")
 	flag.BoolVar(&oneShot, "oneShot", false, "print to stdout and exit")
 
 	flag.Parse()
@@ -41,17 +50,11 @@ func main() {
 		return
 	}
 
-	agentStatus := prometheus.NewGaugeVec(prometheus.GaugeOpts{
-		Name: "online_status",
-		Help: "gives a Jenkins build executor is online",
-	}, []string{"node", "url"})
-
-	prometheus.MustRegister(agentStatus)
-	hosts := getHosts(jenkinsHost)
+	URLs := getHosts(jenkinsHost)
+	collector := newExecutorCollector(URLs)
+	prometheus.Register(collector)
 
 	if oneShot {
-		collect(hosts, agentStatus)
-
 		req := httptest.NewRequest("GET", "/metrics", nil)
 		w := httptest.NewRecorder()
 
@@ -61,44 +64,83 @@ func main() {
 
 		resp := w.Result()
 		body, _ := ioutil.ReadAll(resp.Body)
-
 		fmt.Println(string(body))
 	} else {
-		// Periodically sample build agents.
-		go func() {
-			for {
-				collect(hosts, agentStatus)
-
-				time.Sleep(time.Duration(time.Duration(pollTimer) * time.Second))
-			}
-		}()
-
 		http.Handle("/metrics", promhttp.Handler())
 		log.Fatal(http.ListenAndServe(":9001", nil))
 	}
 }
 
-func collect(hosts []string, agentStatus *prometheus.GaugeVec) {
-	for _, jenkinsHost := range hosts {
-		status, err := getExecutorStatus(jenkinsHost)
+func getHosts(jenkinsHost string) []string {
+	var hosts []string
+	parts := strings.Split(jenkinsHost, ",")
+	for _, part := range parts {
+		hosts = append(hosts, strings.Trim(part, " "))
+	}
+	return hosts
+}
+
+// NewExecutorCollector creates new executorCollector
+func newExecutorCollector(URLs []string) *executorCollector {
+	c := executorCollector{
+		URLs: URLs,
+	}
+	c.onlineStatus = prometheus.NewDesc("online_status", "whether a node is online", []string{"name", "url"}, prometheus.Labels{})
+	c.temporarilyOfflineStatus = prometheus.NewDesc("temporarily_offline_status", "whether a node is temporarily offline", []string{"name", "url"}, prometheus.Labels{})
+
+	return &c
+}
+
+// Describe sends the super-set of all possible descriptors of metrics
+// collected by this Collector to the provided channel and returns once
+// the last descriptor has been sent.
+func (c *executorCollector) Describe(ch chan<- *prometheus.Desc) {
+	ch <- c.onlineStatus
+}
+
+// Collect is called by the Prometheus registry when collecting
+// metrics.
+func (c *executorCollector) Collect(ch chan<- prometheus.Metric) {
+	for _, url := range c.URLs {
+		results, err := remoteCollect(url)
 		if err != nil {
 			fmt.Println(err)
-		}
-		for _, computer := range status.Computer {
-
-			var online float64
-			if computer.Offline == false {
-				online = 1
+		} else {
+			for _, result := range results {
+				ch <- prometheus.MustNewConstMetric(c.onlineStatus, prometheus.GaugeValue, result.online, result.node, url)
+				ch <- prometheus.MustNewConstMetric(c.temporarilyOfflineStatus, prometheus.GaugeValue, result.temporarilyOffline, result.node, url)
 			}
-
-			labels := map[string]string{
-				"node": computer.DisplayName,
-				"url":  jenkinsHost,
-			}
-
-			agentStatus.With(labels).Set(online)
 		}
 	}
+}
+
+func remoteCollect(url string) ([]remoteCollection, error) {
+	var results []remoteCollection
+	var err error
+
+	status, err := getExecutorStatus(url)
+
+	if err == nil {
+		for _, computer := range status.Computer {
+			result := remoteCollection{
+				node:               computer.DisplayName,
+				online:             0,
+				temporarilyOffline: 0,
+			}
+
+			if computer.Offline == false {
+				result.online = 1
+			}
+
+			if computer.TemporarilyOffline {
+				result.temporarilyOffline = 1
+			}
+
+			results = append(results, result)
+		}
+	}
+
+	return results, err
 }
 
 func getExecutorStatus(url string) (ExecutorStatus, error) {
@@ -117,13 +159,4 @@ func getExecutorStatus(url string) (ExecutorStatus, error) {
 	err = json.Unmarshal(resBody, &executorStatus)
 
 	return executorStatus, err
-}
-
-func getHosts(jenkinsHost string) []string {
-	var hosts []string
-	parts := strings.Split(jenkinsHost, ",")
-	for _, part := range parts {
-		hosts = append(hosts, strings.Trim(part, " "))
-	}
-	return hosts
 }
