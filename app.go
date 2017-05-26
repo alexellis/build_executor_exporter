@@ -8,7 +8,10 @@ import (
 	"log"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
+
+	"os"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -143,12 +146,28 @@ func remoteCollect(url string) ([]remoteCollection, error) {
 	return results, err
 }
 
-func getExecutorStatus(url string) (ExecutorStatus, error) {
+func getExecutorStatus(baseUrl string) (ExecutorStatus, error) {
 	var executorStatus ExecutorStatus
 	var err error
+	url1, err := url.Parse(fmt.Sprintf("%s/computer/api/json", baseUrl))
 
-	req, err := http.NewRequest("GET", fmt.Sprintf("%s/computer/api/json", url), nil)
+	if url1.User != nil {
+		secret_store := os.Getenv("secret_store")
+		if len(secret_store) == 0 {
+			secret_store = "/run/secrets/"
+		}
+
+		password, err := ioutil.ReadFile(secret_store + url1.User.Username())
+		if err == nil {
+			url1.User = url.UserPassword(url1.User.Username(), strings.Trim(string(password), "\n"))
+		} else {
+			log.Fatalf("Error: %s\n", err.Error())
+		}
+	}
+
+	req, err := http.NewRequest("GET", url1.String(), nil)
 	httpClient := http.Client{}
+
 	res, err := httpClient.Do(req)
 	if err != nil {
 		return executorStatus, err
